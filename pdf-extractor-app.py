@@ -2,7 +2,6 @@ import streamlit as st
 import pdfplumber
 import re
 import io
-import base64
 from collections import defaultdict
 
 def extract_text_from_pdf(uploaded_file):
@@ -81,14 +80,6 @@ def post_process_text(text):
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
 
-def get_text_download_link(text, filename):
-    """
-    Genera un enlace de descarga para el archivo de texto.
-    """
-    b64 = base64.b64encode(text.encode()).decode()
-    href = f'data:text/plain;base64,{b64}'
-    return f'<a href="{href}" download="{filename}" class="download-button">📥 Descargar archivo de texto</a>'
-
 def main():
     st.set_page_config(
         page_title="Extractor de Texto PDF",
@@ -97,25 +88,6 @@ def main():
     
     st.title("📄 Extractor de Texto PDF")
     st.write("Sube un archivo PDF para extraer su texto manteniendo el formato.")
-    
-    # Agregar CSS personalizado para el botón de descarga
-    st.markdown("""
-        <style>
-        .download-button {
-            display: inline-block;
-            padding: 0.5em 1em;
-            color: white;
-            background-color: #4CAF50;
-            border-radius: 4px;
-            text-decoration: none;
-            margin-top: 1em;
-        }
-        .download-button:hover {
-            background-color: #45a049;
-            color: white;
-        }
-        </style>
-    """, unsafe_allow_html=True)
     
     uploaded_file = st.file_uploader("Selecciona un archivo PDF", type="pdf")
     
@@ -135,10 +107,12 @@ def main():
                 st.text_area("", value=full_text[:1000] + ("..." if len(full_text) > 1000 else ""), 
                             height=300, key="preview")
                 
-                # Generar enlace de descarga
-                st.markdown(
-                    get_text_download_link(full_text, "texto_extraido.txt"),
-                    unsafe_allow_html=True
+                # Botón de descarga usando componente nativo de Streamlit
+                st.download_button(
+                    label="📥 Descargar archivo de texto",
+                    data=full_text,
+                    file_name="texto_extraido.txt",
+                    mime="text/plain"
                 )
                 
         except Exception as e:
