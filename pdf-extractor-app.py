@@ -86,37 +86,56 @@ def main():
         page_icon="📄"
     )
     
+    # Inicializar variables de estado
+    if 'processed_text' not in st.session_state:
+        st.session_state.processed_text = None
+    if 'current_file' not in st.session_state:
+        st.session_state.current_file = None
+    
     st.title("📄 Extractor de Texto PDF")
     st.write("Sube un archivo PDF para extraer su texto manteniendo el formato.")
     
     uploaded_file = st.file_uploader("Selecciona un archivo PDF", type="pdf")
     
+    # Limpiar el estado si se sube un nuevo archivo
+    if uploaded_file is not None and uploaded_file != st.session_state.current_file:
+        st.session_state.processed_text = None
+        st.session_state.current_file = uploaded_file
+    
     if uploaded_file is not None:
         try:
-            with st.spinner('Procesando el PDF...'):
-                # Extraer el texto
-                pages_text = extract_text_from_pdf(uploaded_file)
-                
-                # Preparar el texto completo con marcadores de página
-                full_text = ""
-                for i, page_text in enumerate(pages_text, 1):
-                    full_text += f'[Página {i}]\n\n{page_text}\n\n{"="*50}\n\n'
-                
-                # Mostrar vista previa
-                st.subheader("Vista previa del texto extraído:")
-                st.text_area("", value=full_text[:1000] + ("..." if len(full_text) > 1000 else ""), 
-                            height=300, key="preview")
-                
-                # Botón de descarga usando componente nativo de Streamlit
-                st.download_button(
-                    label="📥 Descargar archivo de texto",
-                    data=full_text,
-                    file_name="texto_extraido.txt",
-                    mime="text/plain"
-                )
+            # Procesar solo si no está en el estado
+            if st.session_state.processed_text is None:
+                with st.spinner('Procesando el PDF...'):
+                    # Extraer el texto
+                    pages_text = extract_text_from_pdf(uploaded_file)
+                    
+                    # Preparar el texto completo con marcadores de página
+                    full_text = ""
+                    for i, page_text in enumerate(pages_text, 1):
+                        full_text += f'[Página {i}]\n\n{page_text}\n\n{"="*50}\n\n'
+                    
+                    # Guardar en el estado
+                    st.session_state.processed_text = full_text
+            
+            # Mostrar vista previa usando el texto guardado
+            st.subheader("Vista previa del texto extraído:")
+            preview_text = st.session_state.processed_text[:1000] + ("..." if len(st.session_state.processed_text) > 1000 else "")
+            st.text_area("", value=preview_text, height=300, key="preview")
+            
+            # Botón de descarga usando el texto guardado
+            st.download_button(
+                label="📥 Descargar archivo de texto",
+                data=st.session_state.processed_text,
+                file_name="texto_extraido.txt",
+                mime="text/plain"
+            )
                 
         except Exception as e:
             st.error(f"Error al procesar el archivo: {str(e)}")
+            # Limpiar el estado en caso de error
+            st.session_state.processed_text = None
+            st.session_state.current_file = None
 
 if __name__ == "__main__":
     main()
