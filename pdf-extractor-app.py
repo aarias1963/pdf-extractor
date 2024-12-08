@@ -80,11 +80,26 @@ def post_process_text(text):
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
 
+def reset_app():
+    """
+    Reinicia todas las variables de estado de la aplicación
+    """
+    for key in st.session_state.keys():
+        del st.session_state[key]
+
 def main():
     st.set_page_config(
         page_title="Extractor de Texto PDF",
-        page_icon="📄"
+        page_icon="📄",
+        layout="wide"
     )
+    
+    # Sidebar
+    with st.sidebar:
+        st.title("Opciones")
+        if st.button("🔄 Reiniciar aplicación", use_container_width=True):
+            reset_app()
+            st.rerun()
     
     # Inicializar variables de estado
     if 'processed_text' not in st.session_state:
