@@ -84,8 +84,20 @@ def reset_app():
     """
     Reinicia todas las variables de estado de la aplicación
     """
-    for key in st.session_state.keys():
-        del st.session_state[key]
+    # Guardar las claves que queremos mantener (si hay alguna)
+    keys_to_keep = set()
+    
+    # Obtener todas las claves actuales
+    current_keys = list(st.session_state.keys())
+    
+    # Eliminar todas las claves excepto las que queremos mantener
+    for key in current_keys:
+        if key not in keys_to_keep:
+            del st.session_state[key]
+            
+    # Reiniciar específicamente el widget del file uploader
+    if 'uploaded_file' in st.session_state:
+        del st.session_state['uploaded_file']
 
 def main():
     st.set_page_config(
@@ -110,7 +122,7 @@ def main():
     st.title("📄 Extractor de Texto PDF")
     st.write("Sube un archivo PDF para extraer su texto manteniendo el formato.")
     
-    uploaded_file = st.file_uploader("Selecciona un archivo PDF", type="pdf")
+    uploaded_file = st.file_uploader("Selecciona un archivo PDF", type="pdf", key="uploaded_file")
     
     # Limpiar el estado si se sube un nuevo archivo
     if uploaded_file is not None and uploaded_file != st.session_state.current_file:
