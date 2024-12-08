@@ -1,24 +1,35 @@
 import streamlit as st
 import pdfplumber
 import re
-from io import StringIO
+import io
 import base64
 from collections import defaultdict
 
-def extract_text_from_pdf(pdf_file):
+def extract_text_from_pdf(uploaded_file):
     """
     Extrae texto de un PDF complejo manteniendo la paginación original.
     
     Args:
-        pdf_file: Archivo PDF subido a través de Streamlit
+        uploaded_file: Archivo PDF subido a través de Streamlit
         
     Returns:
         list: Lista de strings, cada elemento corresponde al texto de una página
     """
+    # Leer el contenido del archivo subido
+    pdf_bytes = uploaded_file.getvalue()
+    
     pages_text = []
     
-    with pdfplumber.open(pdf_file) as pdf:
-        for page in pdf.pages:
+    # Usar BytesIO para que pdfplumber pueda leer el contenido
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        # Mostrar progreso
+        progress_bar = st.progress(0)
+        total_pages = len(pdf.pages)
+        
+        for page_num, page in enumerate(pdf.pages):
+            # Actualizar barra de progreso
+            progress_bar.progress((page_num + 1) / total_pages)
+            
             # Extrae elementos de texto con coordenadas
             words = page.extract_words(
                 x_tolerance=3,
@@ -54,6 +65,9 @@ def extract_text_from_pdf(pdf_file):
                 page_text += line_text + '\n'
             
             pages_text.append(post_process_text(page_text))
+        
+        # Eliminar la barra de progreso cuando termine
+        progress_bar.empty()
     
     return pages_text
 
@@ -72,11 +86,36 @@ def get_text_download_link(text, filename):
     Genera un enlace de descarga para el archivo de texto.
     """
     b64 = base64.b64encode(text.encode()).decode()
-    return f'<a href="data:text/plain;base64,{b64}" download="{filename}">Descargar archivo de texto</a>'
+    href = f'data:text/plain;base64,{b64}'
+    return f'<a href="{href}" download="{filename}" class="download-button">📥 Descargar archivo de texto</a>'
 
 def main():
-    st.title("Extractor de Texto PDF")
+    st.set_page_config(
+        page_title="Extractor de Texto PDF",
+        page_icon="📄"
+    )
+    
+    st.title("📄 Extractor de Texto PDF")
     st.write("Sube un archivo PDF para extraer su texto manteniendo el formato.")
+    
+    # Agregar CSS personalizado para el botón de descarga
+    st.markdown("""
+        <style>
+        .download-button {
+            display: inline-block;
+            padding: 0.5em 1em;
+            color: white;
+            background-color: #4CAF50;
+            border-radius: 4px;
+            text-decoration: none;
+            margin-top: 1em;
+        }
+        .download-button:hover {
+            background-color: #45a049;
+            color: white;
+        }
+        </style>
+    """, unsafe_allow_html=True)
     
     uploaded_file = st.file_uploader("Selecciona un archivo PDF", type="pdf")
     
@@ -93,7 +132,8 @@ def main():
                 
                 # Mostrar vista previa
                 st.subheader("Vista previa del texto extraído:")
-                st.text_area("", value=full_text[:1000] + "...", height=300)
+                st.text_area("", value=full_text[:1000] + ("..." if len(full_text) > 1000 else ""), 
+                            height=300, key="preview")
                 
                 # Generar enlace de descarga
                 st.markdown(
@@ -103,6 +143,6 @@ def main():
                 
         except Exception as e:
             st.error(f"Error al procesar el archivo: {str(e)}")
-            
+
 if __name__ == "__main__":
     main()
