@@ -123,34 +123,30 @@ def extract_text_from_pdf(uploaded_file):
             with pdfplumber.open(temp_path) as pdf:
                 total_pages = len(pdf.pages)
                 logger.info(f"Total de páginas: {total_pages}")
-        except Exception as e:
-            logger.error(f"Error al abrir PDF: {e}")
-            raise ValueError("No se pudo abrir el archivo PDF. Verifica que no esté corrupto.")
-
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        try:
-            for start_idx in range(0, total_pages, CHUNK_SIZE):
-                end_idx = min(start_idx + CHUNK_SIZE, total_pages)
-                status_text.text(f"Procesando páginas {start_idx + 1} a {end_idx} de {total_pages}...")
                 
-                chunk_text = extract_text_from_pdf_chunk(temp_path, start_idx, end_idx)
-                
-                # Verificar límite de texto
-                chunk_length = sum(len(text) for text in chunk_text)
-                if total_text_length + chunk_length > MAX_TEXT_LENGTH:
-                    raise ValueError("El texto extraído excede el límite permitido")
-                
-                total_text_length += chunk_length
-                all_pages_text.extend(chunk_text)
-                
-                progress_bar.progress((end_idx) / total_pages)
-                gc.collect()
-                
-            progress_bar.empty()
-            status_text.empty()
+            progress_bar = st.progress(0)
             
+            try:
+                for start_idx in range(0, total_pages, CHUNK_SIZE):
+                    end_idx = min(start_idx + CHUNK_SIZE, total_pages)
+                    st.write(f"Procesando páginas {start_idx + 1} a {end_idx} de {total_pages}...")
+                    
+                    chunk_text = extract_text_from_pdf_chunk(temp_path, start_idx, end_idx)
+                    
+                    # Verificar límite de texto
+                    chunk_length = sum(len(text) for text in chunk_text)
+                    if total_text_length + chunk_length > MAX_TEXT_LENGTH:
+                        raise ValueError("El texto extraído excede el límite permitido")
+                    
+                    total_text_length += chunk_length
+                    all_pages_text.extend(chunk_text)
+                    
+                    progress_bar.progress((end_idx) / total_pages)
+                    gc.collect()
+                    
+            finally:
+                progress_bar.empty()
+                
         except Exception as e:
             logger.error(f"Error durante la extracción: {e}")
             raise
