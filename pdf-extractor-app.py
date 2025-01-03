@@ -239,6 +239,8 @@ def process_and_show_pdf(uploaded_file):
                 # Limpiar los placeholders temporales
                 status.empty()
                 progress_placeholder.empty()
+    except Exception as e:
+        raise e
 
 def main():
     try:
