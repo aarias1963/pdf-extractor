@@ -159,12 +159,14 @@ def extract_text_from_pdf(uploaded_file):
             st.session_state.total_pages = total_pages
             logger.info(f"Total de páginas: {total_pages}")
             
+            # Crear contenedor para el progreso
+            progress_text = st.empty()
             progress_bar = st.progress(0)
             
             try:
                 for start_idx in range(0, total_pages, CHUNK_SIZE):
                     end_idx = min(start_idx + CHUNK_SIZE, total_pages)
-                    st.write(f"Procesando páginas {start_idx + 1} a {end_idx} de {total_pages}...")
+                    progress_text.write(f"Procesando páginas {start_idx + 1} a {end_idx} de {total_pages}...")
                     
                     chunk_text = extract_text_from_pdf_chunk(temp_path, start_idx, end_idx)
                     
@@ -176,10 +178,14 @@ def extract_text_from_pdf(uploaded_file):
                     total_text_length += chunk_length
                     all_pages_text.extend(chunk_text)
                     
-                    progress_bar.progress((end_idx) / total_pages)
+                    # Actualizar barra de progreso
+                    current_progress = min(1.0, end_idx / total_pages)
+                    progress_bar.progress(current_progress)
+                    
                     gc.collect()
                     
             finally:
+                progress_text.empty()
                 progress_bar.empty()
                 
         except Exception as e:
@@ -209,38 +215,36 @@ def process_and_show_pdf(uploaded_file):
     Procesa el PDF y muestra los resultados
     """
     try:
+        # Mostrar información del archivo
+        st.write(f"Archivo subido: {uploaded_file.name}")
         file_hash = hash(uploaded_file.getvalue())
         
         if 'processed_file_hash' not in st.session_state or st.session_state.processed_file_hash != file_hash:
-            status = st.empty()
-            progress_placeholder = st.empty()
-            
-            try:
-                status.write("Procesando PDF...")
-                pages_text = extract_text_from_pdf(uploaded_file)
-                
-                # Preparar texto por partes
-                if pages_text:
-                    output_chunks = []
-                    for i, page_text in enumerate(pages_text, 1):
-                        if page_text:  # Verificar que el texto de la página no sea None
-                            output_chunks.append(f'[Página {i}]\n\n{page_text}\n\n{"="*50}\n\n')
+            # Crear contenedor para el estado
+            with st.status("Procesando PDF...", expanded=True) as status:
+                try:
+                    status.write("Iniciando procesamiento...")
+                    pages_text = extract_text_from_pdf(uploaded_file)
                     
-                    st.session_state.full_text = ''.join(output_chunks)
-                    st.session_state.processed_file_hash = file_hash
-                    status.write("¡Procesamiento completado!")
-                else:
-                    raise ValueError("No se pudo extraer texto del PDF")
-                
-            except Exception as e:
-                logger.error(f"Error durante el procesamiento: {e}")
-                raise e
-            finally:
-                # Limpiar los placeholders temporales
-                status.empty()
-                progress_placeholder.empty()
-    except Exception as e:
-        raise e
+                    # Preparar texto por partes
+                    if pages_text:
+                        output_chunks = []
+                        for i, page_text in enumerate(pages_text, 1):
+                            if page_text:  # Verificar que el texto de la página no sea None
+                                output_chunks.append(f'[Página {i}]\n\n{page_text}\n\n{"="*50}\n\n')
+                        
+                        st.session_state.full_text = ''.join(output_chunks)
+                        st.session_state.processed_file_hash = file_hash
+                        status.update(label="¡Procesamiento completado!", state="complete")
+                    else:
+                        raise ValueError("No se pudo extraer texto del PDF")
+                    
+                except Exception as e:
+                    logger.error(f"Error durante el procesamiento: {e}")
+                    status.update(label="Error en el procesamiento", state="error")
+                    raise e
+        else:
+            st.info("Archivo ya procesado anteriormente. Mostrando resultados guardados.")
 
 def main():
     try:
