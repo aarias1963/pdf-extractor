@@ -3,31 +3,30 @@ import pdfplumber
 import re
 import io
 from collections import defaultdict
+import sys
+import gc
 
-def extract_text_from_pdf(uploaded_file):
+# Constantes
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+CHUNK_SIZE = 10  # Número de páginas por chunk
+
+def check_file_size(file):
     """
-    Extrae texto de un PDF complejo manteniendo la paginación original.
-    
-    Args:
-        uploaded_file: Archivo PDF subido a través de Streamlit
-        
-    Returns:
-        list: Lista de strings, cada elemento corresponde al texto de una página
+    Verifica si el archivo está dentro del límite de tamaño permitido
     """
-    # Leer el contenido del archivo subido
-    pdf_bytes = uploaded_file.getvalue()
+    file_size = sys.getsizeof(file.getvalue())
+    if file_size > MAX_FILE_SIZE:
+        raise ValueError(f"El archivo es demasiado grande. El tamaño máximo permitido es {MAX_FILE_SIZE/1024/1024:.0f}MB")
+
+def extract_text_from_pdf_chunk(pdf, start_page, end_page):
+    """
+    Extrae texto de un rango específico de páginas del PDF
+    """
+    chunk_text = []
     
-    pages_text = []
-    
-    # Usar BytesIO para que pdfplumber pueda leer el contenido
-    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-        # Mostrar progreso
-        progress_bar = st.progress(0)
-        total_pages = len(pdf.pages)
-        
-        for page_num, page in enumerate(pdf.pages):
-            # Actualizar barra de progreso
-            progress_bar.progress((page_num + 1) / total_pages)
+    for page_num in range(start_page, min(end_page, len(pdf.pages))):
+        try:
+            page = pdf.pages[page_num]
             
             # Extrae elementos de texto con coordenadas
             words = page.extract_words(
@@ -63,16 +62,55 @@ def extract_text_from_pdf(uploaded_file):
                 line_text = ' '.join(word['text'] for word in sorted(line, key=lambda x: x['x0']))
                 page_text += line_text + '\n'
             
-            pages_text.append(post_process_text(page_text))
-        
-        # Eliminar la barra de progreso cuando termine
-        progress_bar.empty()
+            chunk_text.append(post_process_text(page_text))
+            
+        except Exception as e:
+            st.warning(f"Error al procesar la página {page_num + 1}: {str(e)}")
+            chunk_text.append(f"[Error en página {page_num + 1}]")
+            
+        # Limpieza de memoria explícita
+        gc.collect()
     
-    return pages_text
+    return chunk_text
+
+def extract_text_from_pdf(uploaded_file):
+    """
+    Extrae texto de un PDF procesándolo en chunks
+    """
+    pdf_bytes = uploaded_file.getvalue()
+    all_pages_text = []
+    
+    try:
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            total_pages = len(pdf.pages)
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            # Procesar el PDF en chunks
+            for start_idx in range(0, total_pages, CHUNK_SIZE):
+                end_idx = min(start_idx + CHUNK_SIZE, total_pages)
+                status_text.text(f"Procesando páginas {start_idx + 1} a {end_idx} de {total_pages}...")
+                
+                chunk_text = extract_text_from_pdf_chunk(pdf, start_idx, end_idx)
+                all_pages_text.extend(chunk_text)
+                
+                # Actualizar progreso
+                progress_bar.progress((end_idx) / total_pages)
+                
+                # Limpieza de memoria
+                gc.collect()
+            
+            progress_bar.empty()
+            status_text.empty()
+            
+    except Exception as e:
+        raise Exception(f"Error al procesar el PDF: {str(e)}")
+        
+    return all_pages_text
 
 def post_process_text(text):
     """
-    Limpia el texto manteniendo el formato.
+    Limpia el texto manteniendo el formato
     """
     text = re.sub(r'[^\w\s.,!?;:()\-\'\"áéíóúÁÉÍÓÚñÑ]', '', text)
     text = re.sub(r'\s+([.,!?;:])', r'\1', text)
@@ -84,20 +122,8 @@ def reset_app():
     """
     Reinicia todas las variables de estado de la aplicación
     """
-    # Guardar las claves que queremos mantener (si hay alguna)
-    keys_to_keep = set()
-    
-    # Obtener todas las claves actuales
-    current_keys = list(st.session_state.keys())
-    
-    # Eliminar todas las claves excepto las que queremos mantener
-    for key in current_keys:
-        if key not in keys_to_keep:
-            del st.session_state[key]
-            
-    # Reiniciar específicamente el widget del file uploader
-    if 'uploaded_file' in st.session_state:
-        del st.session_state['uploaded_file']
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
 
 def main():
     st.set_page_config(
@@ -106,63 +132,55 @@ def main():
         layout="wide"
     )
     
-    # Sidebar
     with st.sidebar:
         st.title("Opciones")
         if st.button("🔄 Reiniciar aplicación", use_container_width=True):
             reset_app()
             st.rerun()
     
-    # Inicializar variables de estado
-    if 'processed_text' not in st.session_state:
-        st.session_state.processed_text = None
-    if 'current_file' not in st.session_state:
-        st.session_state.current_file = None
-    
     st.title("📄 Extractor de Texto PDF")
     st.write("Sube un archivo PDF para extraer su texto manteniendo el formato.")
     
-    uploaded_file = st.file_uploader("Selecciona un archivo PDF", type="pdf", key="uploaded_file")
+    # Información sobre límites
+    st.info(f"Tamaño máximo de archivo: {MAX_FILE_SIZE/1024/1024:.0f}MB")
     
-    # Limpiar el estado si se sube un nuevo archivo
-    if uploaded_file is not None and uploaded_file != st.session_state.current_file:
-        st.session_state.processed_text = None
-        st.session_state.current_file = uploaded_file
+    uploaded_file = st.file_uploader("Selecciona un archivo PDF", type="pdf")
     
     if uploaded_file is not None:
         try:
-            # Procesar solo si no está en el estado
-            if st.session_state.processed_text is None:
-                with st.spinner('Procesando el PDF...'):
-                    # Extraer el texto
-                    pages_text = extract_text_from_pdf(uploaded_file)
-                    
-                    # Preparar el texto completo con marcadores de página
-                    full_text = ""
-                    for i, page_text in enumerate(pages_text, 1):
-                        full_text += f'[Página {i}]\n\n{page_text}\n\n{"="*50}\n\n'
-                    
-                    # Guardar en el estado
-                    st.session_state.processed_text = full_text
+            # Verificar tamaño del archivo
+            check_file_size(uploaded_file)
             
-            # Mostrar vista previa usando el texto guardado
+            # Usar un contenedor para mostrar el estado del procesamiento
+            with st.status("Procesando PDF...", expanded=True) as status:
+                # Extraer el texto
+                pages_text = extract_text_from_pdf(uploaded_file)
+                
+                # Preparar el texto completo con marcadores de página
+                full_text = ""
+                for i, page_text in enumerate(pages_text, 1):
+                    full_text += f'[Página {i}]\n\n{page_text}\n\n{"="*50}\n\n'
+                
+                status.update(label="¡Procesamiento completado!", state="complete")
+            
+            # Mostrar vista previa
             st.subheader("Vista previa del texto extraído:")
-            preview_text = st.session_state.processed_text[:1000] + ("..." if len(st.session_state.processed_text) > 1000 else "")
-            st.text_area("", value=preview_text, height=300, key="preview")
+            preview_text = full_text[:1000] + ("..." if len(full_text) > 1000 else "")
+            st.text_area("", value=preview_text, height=300)
             
-            # Botón de descarga usando el texto guardado
+            # Botón de descarga
             st.download_button(
                 label="📥 Descargar archivo de texto",
-                data=st.session_state.processed_text,
+                data=full_text,
                 file_name="texto_extraido.txt",
                 mime="text/plain"
             )
                 
+        except ValueError as ve:
+            st.error(str(ve))
         except Exception as e:
             st.error(f"Error al procesar el archivo: {str(e)}")
-            # Limpiar el estado en caso de error
-            st.session_state.processed_text = None
-            st.session_state.current_file = None
+            st.error("Por favor, intenta con un archivo más pequeño o en un formato diferente.")
 
 if __name__ == "__main__":
     main()
