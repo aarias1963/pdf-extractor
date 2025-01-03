@@ -171,6 +171,15 @@ def post_process_text(text):
         logger.error(f"Error en post-procesamiento: {e}")
         return text
 
+def init_session_state():
+    """
+    Inicializa las variables de estado de la sesión
+    """
+    if 'processed_file_hash' not in st.session_state:
+        st.session_state.processed_file_hash = None
+    if 'full_text' not in st.session_state:
+        st.session_state.full_text = None
+
 def main():
     try:
         st.set_page_config(
@@ -178,6 +187,9 @@ def main():
             page_icon="📄",
             layout="wide"
         )
+        
+        # Inicializar variables de estado
+        init_session_state()
         
         with st.sidebar:
             st.title("Opciones")
