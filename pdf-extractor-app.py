@@ -18,6 +18,17 @@ MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
 CHUNK_SIZE = 5  # Reducido a 5 páginas por chunk
 MAX_TEXT_LENGTH = 1_000_000  # Límite de caracteres para el texto completo
 
+def init_session_state():
+    """
+    Inicializa las variables de estado de la sesión
+    """
+    if 'processed_file_hash' not in st.session_state:
+        st.session_state.processed_file_hash = None
+    if 'full_text' not in st.session_state:
+        st.session_state.full_text = None
+    if 'total_pages' not in st.session_state:
+        st.session_state.total_pages = None
+
 @contextmanager
 def temp_file_handler(uploaded_file):
     """
@@ -54,6 +65,10 @@ def process_page(page, page_num):
     Procesa una única página del PDF
     """
     try:
+        if page is None:
+            logger.warning(f"Página {page_num} es None")
+            return f"[Error en página {page_num}: Página vacía]"
+
         words = page.extract_words(
             x_tolerance=3,
             y_tolerance=3,
@@ -61,6 +76,10 @@ def process_page(page, page_num):
             use_text_flow=True
         )
         
+        if not words:
+            logger.warning(f"No se encontraron palabras en la página {page_num}")
+            return f"[Página {page_num}: Sin contenido]"
+
         sorted_words = sorted(words, key=lambda x: (x['top'], x['x0']))
         lines = []
         current_line = []
@@ -86,7 +105,7 @@ def process_page(page, page_num):
         return post_process_text(page_text)
     except Exception as e:
         logger.error(f"Error procesando página {page_num}: {e}")
-        return f"[Error en página {page_num}]"
+        return f"[Error en página {page_num}: {str(e)}]"
 
 def extract_text_from_pdf_chunk(pdf_path, start_page, end_page):
     """
@@ -95,9 +114,12 @@ def extract_text_from_pdf_chunk(pdf_path, start_page, end_page):
     chunk_text = []
     try:
         with pdfplumber.open(pdf_path) as pdf:
+            if not pdf or not pdf.pages:
+                raise ValueError("PDF vacío o inválido")
+
             for page_num in range(start_page, min(end_page, len(pdf.pages))):
                 logger.info(f"Procesando página {page_num + 1}")
-                page = pdf.pages[page_num]
+                page = pdf.pages[page_num] if page_num < len(pdf.pages) else None
                 page_text = process_page(page, page_num + 1)
                 chunk_text.append(page_text)
                 
@@ -111,6 +133,19 @@ def extract_text_from_pdf_chunk(pdf_path, start_page, end_page):
         
     return chunk_text
 
+def get_total_pages(pdf_path):
+    """
+    Obtiene el número total de páginas del PDF
+    """
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            if pdf is None or not hasattr(pdf, 'pages'):
+                raise ValueError("PDF inválido")
+            return len(pdf.pages)
+    except Exception as e:
+        logger.error(f"Error al obtener total de páginas: {e}")
+        raise ValueError("No se pudo determinar el número de páginas del PDF")
+
 def extract_text_from_pdf(uploaded_file):
     """
     Extrae texto de un PDF procesándolo en chunks
@@ -120,10 +155,10 @@ def extract_text_from_pdf(uploaded_file):
     
     with temp_file_handler(uploaded_file) as temp_path:
         try:
-            with pdfplumber.open(temp_path) as pdf:
-                total_pages = len(pdf.pages)
-                logger.info(f"Total de páginas: {total_pages}")
-                
+            total_pages = get_total_pages(temp_path)
+            st.session_state.total_pages = total_pages
+            logger.info(f"Total de páginas: {total_pages}")
+            
             progress_bar = st.progress(0)
             
             try:
@@ -134,7 +169,7 @@ def extract_text_from_pdf(uploaded_file):
                     chunk_text = extract_text_from_pdf_chunk(temp_path, start_idx, end_idx)
                     
                     # Verificar límite de texto
-                    chunk_length = sum(len(text) for text in chunk_text)
+                    chunk_length = sum(len(text) for text in chunk_text if text)
                     if total_text_length + chunk_length > MAX_TEXT_LENGTH:
                         raise ValueError("El texto extraído excede el límite permitido")
                     
@@ -157,6 +192,8 @@ def post_process_text(text):
     """
     Limpia el texto manteniendo el formato
     """
+    if text is None:
+        return ""
     try:
         text = re.sub(r'[^\w\s.,!?;:()\-\'\"áéíóúÁÉÍÓÚñÑ]', '', text)
         text = re.sub(r'\s+([.,!?;:])', r'\1', text)
@@ -167,14 +204,41 @@ def post_process_text(text):
         logger.error(f"Error en post-procesamiento: {e}")
         return text
 
-def init_session_state():
+def process_and_show_pdf(uploaded_file):
     """
-    Inicializa las variables de estado de la sesión
+    Procesa el PDF y muestra los resultados
     """
-    if 'processed_file_hash' not in st.session_state:
-        st.session_state.processed_file_hash = None
-    if 'full_text' not in st.session_state:
-        st.session_state.full_text = None
+    try:
+        file_hash = hash(uploaded_file.getvalue())
+        
+        if 'processed_file_hash' not in st.session_state or st.session_state.processed_file_hash != file_hash:
+            status = st.empty()
+            progress_placeholder = st.empty()
+            
+            try:
+                status.write("Procesando PDF...")
+                pages_text = extract_text_from_pdf(uploaded_file)
+                
+                # Preparar texto por partes
+                if pages_text:
+                    output_chunks = []
+                    for i, page_text in enumerate(pages_text, 1):
+                        if page_text:  # Verificar que el texto de la página no sea None
+                            output_chunks.append(f'[Página {i}]\n\n{page_text}\n\n{"="*50}\n\n')
+                    
+                    st.session_state.full_text = ''.join(output_chunks)
+                    st.session_state.processed_file_hash = file_hash
+                    status.write("¡Procesamiento completado!")
+                else:
+                    raise ValueError("No se pudo extraer texto del PDF")
+                
+            except Exception as e:
+                logger.error(f"Error durante el procesamiento: {e}")
+                raise e
+            finally:
+                # Limpiar los placeholders temporales
+                status.empty()
+                progress_placeholder.empty()
 
 def main():
     try:
@@ -203,40 +267,23 @@ def main():
         if uploaded_file is not None:
             try:
                 check_file_size(uploaded_file)
+                process_and_show_pdf(uploaded_file)
                 
-                # Verificar si necesitamos procesar el archivo
-                file_hash = hash(uploaded_file.getvalue())
-                if 'processed_file_hash' not in st.session_state or st.session_state.processed_file_hash != file_hash:
-                    with st.status("Procesando PDF...", expanded=True) as status:
-                        pages_text = extract_text_from_pdf(uploaded_file)
-                        
-                        # Guardar el hash del archivo procesado
-                        st.session_state.processed_file_hash = file_hash
-                        st.session_state.processed_text = pages_text
-                else:
-                    pages_text = st.session_state.processed_text
+                # Mostrar vista previa y botón de descarga solo si hay texto procesado
+                if st.session_state.full_text is not None:
+                    # Mostrar vista previa
+                    st.subheader("Vista previa del texto extraído:")
+                    preview_text = st.session_state.full_text[:1000] + ("..." if len(st.session_state.full_text) > 1000 else "")
+                    st.text_area("", value=preview_text, height=300)
                     
-                    # Preparar texto por partes y guardarlo en session_state
-                    output_chunks = []
-                    for i, page_text in enumerate(pages_text, 1):
-                        output_chunks.append(f'[Página {i}]\n\n{page_text}\n\n{"="*50}\n\n')
-                    
-                    st.session_state.full_text = ''.join(output_chunks)
-                    status.update(label="¡Procesamiento completado!", state="complete")
-                
-                # Mostrar vista previa
-                st.subheader("Vista previa del texto extraído:")
-                preview_text = st.session_state.full_text[:1000] + ("..." if len(st.session_state.full_text) > 1000 else "")
-                st.text_area("", value=preview_text, height=300)
-                
-                # Botón de descarga
-                st.download_button(
-                    label="📥 Descargar archivo de texto",
-                    data=st.session_state.full_text,
-                    file_name="texto_extraido.txt",
-                    mime="text/plain",
-                    key="download_button"
-                )
+                    # Botón de descarga
+                    st.download_button(
+                        label="📥 Descargar archivo de texto",
+                        data=st.session_state.full_text,
+                        file_name="texto_extraido.txt",
+                        mime="text/plain",
+                        key="download_button"
+                    )
                     
             except ValueError as ve:
                 st.error(str(ve))
