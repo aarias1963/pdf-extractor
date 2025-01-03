@@ -208,23 +208,23 @@ def main():
                 else:
                     pages_text = st.session_state.processed_text
                     
-                    # Preparar texto por partes
+                    # Preparar texto por partes y guardarlo en session_state
                     output_chunks = []
                     for i, page_text in enumerate(pages_text, 1):
                         output_chunks.append(f'[Página {i}]\n\n{page_text}\n\n{"="*50}\n\n')
                     
-                    full_text = ''.join(output_chunks)
+                    st.session_state.full_text = ''.join(output_chunks)
                     status.update(label="¡Procesamiento completado!", state="complete")
                 
                 # Mostrar vista previa
                 st.subheader("Vista previa del texto extraído:")
-                preview_text = full_text[:1000] + ("..." if len(full_text) > 1000 else "")
+                preview_text = st.session_state.full_text[:1000] + ("..." if len(st.session_state.full_text) > 1000 else "")
                 st.text_area("", value=preview_text, height=300)
                 
-                # Botón de descarga directo sin archivo temporal
+                # Botón de descarga
                 st.download_button(
                     label="📥 Descargar archivo de texto",
-                    data=full_text,
+                    data=st.session_state.full_text,
                     file_name="texto_extraido.txt",
                     mime="text/plain",
                     key="download_button"
@@ -234,7 +234,7 @@ def main():
                 st.error(str(ve))
             except Exception as e:
                 logger.error(f"Error inesperado: {e}")
-                st.error("Se produjo un error al procesar el archivo. Por favor, inténtalo de nuevo con un archivo más pequeño.")
+                st.error("Se produjo un error al procesar el archivo. Por favor, intenta recargar la página y procesar el archivo nuevamente.")
                 st.error(f"Detalles del error: {str(e)}")
 
     except Exception as e:
