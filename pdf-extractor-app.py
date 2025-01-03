@@ -171,18 +171,6 @@ def post_process_text(text):
         logger.error(f"Error en post-procesamiento: {e}")
         return text
 
-def save_text_to_file(text):
-    """
-    Guarda el texto en un archivo temporal y devuelve su contenido
-    """
-    try:
-        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.txt') as f:
-            f.write(text)
-            return f.name
-    except Exception as e:
-        logger.error(f"Error al guardar texto: {e}")
-        raise
-
 def main():
     try:
         st.set_page_config(
@@ -208,8 +196,17 @@ def main():
             try:
                 check_file_size(uploaded_file)
                 
-                with st.status("Procesando PDF...", expanded=True) as status:
-                    pages_text = extract_text_from_pdf(uploaded_file)
+                # Verificar si necesitamos procesar el archivo
+                file_hash = hash(uploaded_file.getvalue())
+                if 'processed_file_hash' not in st.session_state or st.session_state.processed_file_hash != file_hash:
+                    with st.status("Procesando PDF...", expanded=True) as status:
+                        pages_text = extract_text_from_pdf(uploaded_file)
+                        
+                        # Guardar el hash del archivo procesado
+                        st.session_state.processed_file_hash = file_hash
+                        st.session_state.processed_text = pages_text
+                else:
+                    pages_text = st.session_state.processed_text
                     
                     # Preparar texto por partes
                     output_chunks = []
@@ -224,16 +221,14 @@ def main():
                 preview_text = full_text[:1000] + ("..." if len(full_text) > 1000 else "")
                 st.text_area("", value=preview_text, height=300)
                 
-                # Guardar y preparar para descarga
-                temp_file = save_text_to_file(full_text)
-                with open(temp_file, 'r') as f:
-                    st.download_button(
-                        label="📥 Descargar archivo de texto",
-                        data=f.read(),
-                        file_name="texto_extraido.txt",
-                        mime="text/plain"
-                    )
-                os.unlink(temp_file)  # Limpiar archivo temporal
+                # Botón de descarga directo sin archivo temporal
+                st.download_button(
+                    label="📥 Descargar archivo de texto",
+                    data=full_text,
+                    file_name="texto_extraido.txt",
+                    mime="text/plain",
+                    key="download_button"
+                )
                     
             except ValueError as ve:
                 st.error(str(ve))
